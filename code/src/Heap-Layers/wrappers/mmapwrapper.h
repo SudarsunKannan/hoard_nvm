@@ -38,23 +38,35 @@
 #include <sys/mman.h>
 #include <map>
 #endif
+#include <assert.h>
+
 
 static size_t total_alloc=0;
-#define MAP_SCM 0x80000
-#define MAP_PERSISTENT MAP_SCM
-
-//#define MAP_PMFS
-#ifdef MAP_PMFS
-#include <assert.h>
+static unsigned long mapfilesz=5368709120;
 static int first_time=1;
 static int gfd = 0;
-static unsigned long pmfs_size=5368709120;
+
+/*Different types of MMAP we support*/
+//#define MAP_DRAM
+#ifdef MAP_DRAM
+static int mapFlag = MAP_PRIVATE | MAP_ANONYMOUS;
 #endif
 
-//#define _USE_NVMAP
-#ifdef _USE_NVMAP
+//#define MAP_MNEMOSYNE
+#ifdef MAP_MNEMOSYNE
+#define MAP_SCM 0x80000
+#define MAP_PERSISTENT MAP_SCM
+static int mapFlag = MAP_PRIVATE;
+#endif
+
+#define MAP_PMFS
+#ifdef MAP_PMFS
+static int mapFlag = MAP_PRIVATE;
+#endif
+
+//#define MAP_PVMAP
+#ifdef MAP_PVMAP
 #include <time.h>
-//static unsigned int BASEPROCID=0;
 #define __NR_nv_mmap_pgoff     314
 #define _USERANDOM_PROCID
 struct nvmap_arg_struct {
@@ -70,7 +82,7 @@ struct nvmap_arg_struct {
 };
 #define BASEPROCID 347
 typedef struct nvmap_arg_struct nvarg_s;
-static int first_time=1;
+static int mapFlag = MAP_PRIVATE | MAP_ANONYMOUS;
 #endif
 
 
@@ -205,7 +217,6 @@ err:
 static void * map (size_t sz) {
 
       void * ptr;
-      unsigned int mapFlag = 0;
       char * startAddress = 0;
 
       if (sz == 0) {
@@ -222,14 +233,13 @@ static void * map (size_t sz) {
       mapFlag |= MAP_PRIVATE;
 #else
       int fd = -1;
-	  //fprintf(stderr,"setting flag %u\n", sz);	
       mapFlag |= MAP_ANONYMOUS | MAP_PRIVATE;
 #endif
 
 #if defined(MAP_PMFS)
 		if(first_time){
- 			fprintf(stderr,"calling pmfs mmap %ld\n", pmfs_size);
- 			gfd = util_tmpfile("/mnt/pmfs", pmfs_size);
+ 			fprintf(stderr,"calling pmfs mmap %ld\n", mapfilesz);
+ 			gfd = util_tmpfile("/mnt/pmfs", mapfilesz);
 
  		 	if(gfd < 0){
 				fprintf(stderr,"mmap failed \n");
@@ -238,10 +248,9 @@ static void * map (size_t sz) {
 	 		first_time=0;
 		}
 		fd = gfd;
-		mapFlag=MAP_PRIVATE; //|MAP_PERSISTENT;	
 		ptr = mmap (startAddress, sz, HL_MMAP_PROTECTION_MASK,  mapFlag, fd, 0);
 		total_alloc += sz;
-#elif !defined(_USE_NVMAP)
+#elif !defined(MAP_PVMAP)
 		//fprintf(stderr,"calling mmap %u\n", sz);	
 		startAddress = 0;
 		ptr = mmap (startAddress, sz, HL_MMAP_PROTECTION_MASK,  mapFlag, fd, 0);
